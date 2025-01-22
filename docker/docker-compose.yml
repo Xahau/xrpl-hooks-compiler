@@ -1,4 +1,5 @@
 version: '3.6'
+name: c2wasm-api
 services:
   server:
     container_name: c2wasm-api

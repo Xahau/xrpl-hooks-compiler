@@ -38,8 +38,8 @@ directory, providing the results of running `make` in clang-build,
 clangd-build and cleaner-build directories, so that running the
 top-level make `build` target can be replaced by running just the
 (default) make `build` target in the docker directory. This also
-allows skipping the checkout of the `llvm-project`, `wasi-sdk` and
-`hook-cleaner-c` submodules.
+allows skipping the checkout of the `llvm-project`, `wasi-sdk`,
+`hook-cleaner-c` and `quickjslite` submodules.
 
 ## API Wrapper or c2wasm-api
 
