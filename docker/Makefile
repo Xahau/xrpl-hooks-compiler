@@ -30,4 +30,4 @@ c2wasm-api: ../c2wasm-api
 	cp -LR $< .
 
 clean:
-	-rm -rf c2wasm-api clangd wasi-sdk hook-cleaner
+	-rm -rf c2wasm-api clangd wasi-sdk hook-cleaner ../wasi-sdk.ts
