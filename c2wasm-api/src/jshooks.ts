@@ -99,7 +99,7 @@ function serialize_file_data(filename: string, compress: boolean) {
     .match(/0x[a-fA-F0-9]+/g)
     ?.map(hex => hex.replace('0x', ''))
     .join('') || '';
-  content = Buffer.from(hexData)
+  content = Buffer.from(hexData, 'hex')
   if (compress) {
     content = deflateSync(content);
   }
