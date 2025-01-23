@@ -1,0 +1,31 @@
+
+CLANG_OPTIONS = -xc -fdiagnostics-print-source-range-info -Werror=implicit-function-declaration --no-standard-libraries -nostartfiles -Wl,--allow-undefined,--no-entry,--export-all
+CLANG_INCLUDES = -I/app/clang/includes 
+
+C_FILE_PATH = /tmp/build_v93tglbrj.$/base.c
+WASM_OUTPUT_DIR = /tmp/build_v93tglbrj.wasm
+
+compile-c:
+	$(eval INPUT_FILE := $(word 2,$(MAKECMDGOALS)))
+	$(eval OUTPUT_DIR := $(word 3,$(MAKECMDGOALS)))
+	$(eval HEADER_DIR := $(word 4,$(MAKECMDGOALS)))
+	$(eval BASENAME := $(notdir $(basename $(INPUT_FILE))))
+	$(eval INPUT_PATH := ./compile/$(INPUT_FILE))
+	$(eval OUTPUT_PATH := ./compile/$(OUTPUT_DIR))
+	$(eval INCLUDES := $(if $(HEADER_DIR),-I$(HEADER_DIR),$(CLANG_INCLUDES)))
+	/app/clang/wasi-sdk/bin/clang $(CLANG_OPTIONS) $(INCLUDES) $(INPUT_PATH) -o /tmp/$(BASENAME)_unopt.wasm
+	mkdir -p $(OUTPUT_PATH)
+	wasm-opt -O3 -o $(OUTPUT_PATH)/$(BASENAME).wasm /tmp/$(BASENAME)_unopt.wasm
+	hook-cleaner $(OUTPUT_PATH)/$(BASENAME).wasm
+
+compile-js:
+	$(eval INPUT_FILE := $(word 2,$(MAKECMDGOALS)))
+	$(eval OUTPUT_DIR := $(word 3,$(MAKECMDGOALS)))
+	$(eval BASENAME := $(notdir $(basename $(INPUT_FILE))))
+	$(eval INPUT_PATH := ./compile/$(INPUT_FILE))
+	$(eval OUTPUT_PATH := ./compile/$(OUTPUT_DIR))
+	mkdir -p $(OUTPUT_PATH)
+	qjsc -c -o $(OUTPUT_PATH)/$(BASENAME).c $(INPUT_PATH)
+
+.DEFAULT:
+	@:

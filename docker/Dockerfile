@@ -1,9 +1,10 @@
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
-RUN apk --no-cache add su-exec
+RUN apk --no-cache add su-exec make
 COPY clangd /usr/bin
 WORKDIR /app
+COPY Makefile.build ./Makefile
 COPY c2wasm-api/clang/includes ./clang/includes
 COPY c2wasm-api/package.json .
 COPY c2wasm-api/yarn.lock .
@@ -17,6 +18,7 @@ COPY run.sh .
 ADD compile_flags.txt /etc/clangd/compile_flags.txt
 ADD .clang-tidy /work/.clang-tidy
 ADD .clangd /work/.clangd
+RUN mkdir -p /app/compile
 RUN cp -alf ./clang/includes /work/c && cp -alf clang/wasi-sdk/share/wasi-sysroot/include /usr && mkdir -p /usr/lib/clang/15.0.0 && cp -alf clang/wasi-sdk/lib/clang/15.0.0/include /usr/lib/clang/15.0.0
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup -h /app && chown appuser:appgroup /app
 RUN yarn && yarn build
