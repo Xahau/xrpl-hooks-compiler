@@ -1,1 +1,4 @@
 .git
+
+wasi-sdk/bin/*
+!wasi-sdk/bin/clang
