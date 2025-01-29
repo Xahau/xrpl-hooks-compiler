@@ -9,7 +9,7 @@
 	url = https://github.com/XRPLF/hook-cleaner-c
 [submodule "c2wasm-api/clang/includes"]
 	path = c2wasm-api/clang/includes
-	url = https://github.com/XRPLF/hook-macros
+	url = https://github.com/Xahau/xahaud
 [submodule "quickjslite"]
 	path = quickjslite
 	url = https://github.com/RichardAH/quickjslite

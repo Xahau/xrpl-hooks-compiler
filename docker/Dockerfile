@@ -4,7 +4,7 @@ MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 RUN apk --no-cache add su-exec
 COPY clangd /usr/bin
 WORKDIR /app
-COPY c2wasm-api/clang/includes ./clang/includes
+COPY c2wasm-api/clang/includes/hook ./clang/includes
 COPY c2wasm-api/package.json .
 COPY c2wasm-api/yarn.lock .
 COPY c2wasm-api/tsconfig.json .
@@ -19,6 +19,6 @@ ADD .clang-tidy /work/.clang-tidy
 ADD .clangd /work/.clangd
 RUN cp -alf ./clang/includes /work/c && cp -alf clang/wasi-sdk/share/wasi-sysroot/include /usr && mkdir -p /usr/lib/clang/15.0.0 && cp -alf clang/wasi-sdk/lib/clang/15.0.0/include /usr/lib/clang/15.0.0
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup -h /app && chown appuser:appgroup /app
-RUN yarn && yarn build
+RUN yarn --production && yarn build && yarn cache clean
 EXPOSE $PORT
 CMD ["./run.sh", "node", "dist/index.js"]

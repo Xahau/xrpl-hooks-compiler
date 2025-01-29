@@ -97,16 +97,48 @@ function shell_exec(cmd: string, cwd: string) {
   return result;
 }
 
-function get_optimization_options(options: string) {
-  const optimization_options = [
-    /* default '-O0' not included */ '-O1', '-O2', '-O3', '-O4', '-Os'
-  ];
+const optimization_options = [
+    /* default '-O0' not included */ '-O1', '-O2', '-O3', '-O4', '-Oz'
+];
 
-  let safe_options = '';
+function get_optimization_options(options: string) {
+  let optimization_level = '';
   for (let o of optimization_options) {
     if (options.includes(o)) {
-      safe_options += ' ' + o;
+      optimization_level += ' ' + o;
     }
+  }
+  
+  let safe_options = '';
+  const _options = [
+    '--shrink-level=100000000',
+    '--coalesce-locals-learning',
+    '--vacuum',
+    '--merge-blocks',
+    '--merge-locals',
+    '--flatten',
+    '--ignore-implicit-traps',
+    '-ffm',
+    '--const-hoisting',
+    '--code-folding',
+    '--code-pushing',
+    '--dae-optimizing',
+    '--dce',
+    '--simplify-globals-optimizing',
+    '--simplify-locals-nonesting',
+    '--reorder-locals',
+    '--rereloop',
+    '--precompute-propagate',
+    '--local-cse',
+    '--remove-unused-brs',
+    '--memory-packing',
+    '-c',
+    '--avoid-reinterprets',
+    optimization_level
+  ]
+
+  for (let o of _options) {
+    safe_options += ' ' + o;
   }
 
   return safe_options;
@@ -170,7 +202,15 @@ function validate_filename(name: string) {
 function link_c_files(source_files: string[], compile_options: string, link_options: string, cwd: string, output: string, result_obj: Task) {
   const files = source_files.join(' ');
   const clang = llvmDir + '/bin/clang';
-  const cmd = clang + ' ' + get_clang_options(compile_options) + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output;
+  let optimization_level = '';
+  
+  for (let o of optimization_options) {
+    if (compile_options.includes(o)) {
+      optimization_level == o;
+    }
+  }
+  const cmd = clang + ' ' + optimization_level + ' ' + get_clang_options(compile_options) + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output;
+
   const out = shell_exec(cmd, cwd);
   result_obj.console = sanitize_shell_output(out);
   if (!existsSync(output)) {
@@ -297,6 +337,26 @@ export function build_project(project: RequestBody, base: string) {
   }
 
   const opt_options = get_optimization_options(options || '');
+  if (opt_options) {
+    const opt_obj = {
+      name: 'optimizing wasm'
+    };
+    build_result.tasks.push(opt_obj);
+    if (!optimize_wasm(dir, result, opt_options, opt_obj)) {
+      return complete(false, 'Optimization error');
+    }
+  }
+
+  if (strip) {
+    const clean_obj = {
+      name: 'cleaning wasm'
+    };
+    build_result.tasks.push(clean_obj);
+    if (!clean_wasm(dir, result, clean_obj)) {
+      return complete(false, 'Post-build error');
+    }
+  }
+
   if (opt_options) {
     const opt_obj = {
       name: 'optimizing wasm'
