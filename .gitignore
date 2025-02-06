@@ -5,5 +5,7 @@ docker/c2wasm-api
 docker/wasi-sdk
 docker/clangd
 docker/hook-cleaner
+docker/guard_checker
 docker/qjsc
+guard-checker/guard_checker
 wasi-sdk.ts

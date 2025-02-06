@@ -25,12 +25,18 @@ clangd: ../bin/clangd
 
 hook-cleaner: ../bin/hook-cleaner
 	cp $< .
+	chmod +x hook-cleaner
+
+guard-checker: ../bin/guard_checker
+	cp $< .
+	chmod +x guard_checker
 
 c2wasm-api: ../c2wasm-api
 	cp -LR $< .
 
 qjsc: ../bin/qjsc
 	cp $< .
+	chmod +x qjsc
 
 clean:
 	-rm -rf c2wasm-api clangd wasi-sdk hook-cleaner qjsc ../wasi-sdk.ts

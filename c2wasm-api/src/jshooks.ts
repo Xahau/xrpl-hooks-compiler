@@ -1,18 +1,7 @@
-import fastify from 'fastify';
 import { mkdirSync, writeFileSync, existsSync, openSync, closeSync, readFileSync, rmSync, unlinkSync, copyFileSync } from "fs";
 import { execSync } from "child_process";
 import { z } from 'zod';
-import fastifyCors from 'fastify-cors';
-import fastifyWebSocket from 'fastify-websocket';
 import { deflateSync } from 'zlib';
-
-const server = fastify();
-
-server.register(fastifyCors, {
-  // put your options here
-  origin: '*'
-})
-server.register(fastifyWebSocket);
 
 export interface ResponseData {
   success: boolean;
@@ -29,7 +18,7 @@ export interface Task {
   output?: string;
 }
 
-const requestBodySchema = z.object({
+export const requestBodySchema = z.object({
   output: z.enum(['bc']),
   files: z.array(z.object({
     type: z.string(),
@@ -42,7 +31,7 @@ const requestBodySchema = z.object({
   strip: z.boolean().optional()
 });
 
-type RequestBody = z.infer<typeof requestBodySchema>;
+export type RequestBody = z.infer<typeof requestBodySchema>;
 
 // Input: JSON in the following format
 // {
