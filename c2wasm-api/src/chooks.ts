@@ -97,37 +97,43 @@ function shell_exec(cmd: string, cwd: string) {
   return result;
 }
 
-function get_optimization_options(options: string) {
-  const optimization_options = [
-    /* default '-O0' not included */ '-O1', '-O2', '-O3', '-O4', '-Os'
-  ];
+const optimization_level = '-O3'
 
-  let safe_options = '';
-  for (let o of optimization_options) {
-    if (options.includes(o)) {
-      safe_options += ' ' + o;
-    }
-  }
+function get_optimization_options() {
+  const options = [
+    '--shrink-level=100000000',
+    '--coalesce-locals-learning',
+    '--vacuum',
+    '--merge-blocks',
+    '--merge-locals',
+    '--flatten',
+    '--ignore-implicit-traps',
+    '-ffm',
+    '--const-hoisting',
+    '--code-folding',
+    '--code-pushing',
+    '--dae-optimizing',
+    '--dce',
+    '--simplify-globals-optimizing',
+    '--simplify-locals-nonesting',
+    '--reorder-locals',
+    '--rereloop',
+    '--precompute-propagate',
+    '--local-cse',
+    '--remove-unused-brs',
+    '--memory-packing',
+    '-c',
+    '--avoid-reinterprets',
+    optimization_level
+  ]
 
-  return safe_options;
+  return options.join(' ');
 }
 
-function get_clang_options(options: string) {
+function get_clang_options() {
   const clang_flags = `--sysroot=${sysroot} -xc -I/app/clang/includes -fdiagnostics-print-source-range-info -Werror=implicit-function-declaration`;
-  const miscellaneous_options = [
-    '-ffast-math', '-fno-inline', '-std=c99', '-std=c89'
-  ];
 
-  let safe_options = '';
-  for (let o of miscellaneous_options) {
-    if (options.includes(o)) {
-      safe_options += ' ' + o;
-    } else if (o.includes('-std=') && options.toLowerCase().includes(o)) {
-      safe_options += ' ' + o;
-    }
-  }
-
-  return clang_flags + safe_options;
+  return clang_flags;
 }
 
 function get_lld_options(options: string) {
@@ -167,10 +173,12 @@ function validate_filename(name: string) {
   return parts;
 }
 
-function link_c_files(source_files: string[], compile_options: string, link_options: string, cwd: string, output: string, result_obj: Task) {
+function link_c_files(source_files: string[], link_options: string, cwd: string, output: string, result_obj: Task) {
   const files = source_files.join(' ');
   const clang = llvmDir + '/bin/clang';
-  const cmd = clang + ' ' + get_clang_options(compile_options) + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output;
+
+  const cmd = clang + ' ' + optimization_level + ' ' + get_clang_options() + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output;
+
   const out = shell_exec(cmd, cwd);
   result_obj.console = sanitize_shell_output(out);
   if (!existsSync(output)) {
@@ -220,6 +228,27 @@ function clean_wasm(cwd: string, inplace: string, result_obj: Task) {
     closeSync(out);
   }
   const out_msg = readFileSync(cwd + '/cleanout.log').toString() || error;
+  result_obj.console = sanitize_shell_output(out_msg);
+  result_obj.success = success;
+  return success;
+}
+
+function guard_check_wasm(cwd: string, inplace: string, result_obj: Task) {
+  const cmd = 'guard_checker ' + inplace;
+  const out = openSync(cwd + '/guardout.log', 'w');
+  let error = '';
+  let success = true;
+  try {
+    execSync(cmd, { cwd, stdio: [null, out, out], });
+  } catch (ex: unknown) {
+    success = false;
+    if (ex instanceof Error) {
+      error = ex?.message;
+    }
+  } finally {
+    closeSync(out);
+  }
+  const out_msg = readFileSync(cwd + '/guardout.log').toString() || error;
   result_obj.console = sanitize_shell_output(out_msg);
   result_obj.success = success;
   return success;
@@ -292,18 +321,18 @@ export function build_project(project: RequestBody, base: string) {
     name: 'building wasm'
   };
   build_result.tasks.push(link_result_obj);
-  if (!link_c_files(sources, options || '', link_options || '', dir, result, link_result_obj)) {
+  if (!link_c_files(sources, link_options || '', dir, result, link_result_obj)) {
     return complete(false, 'Build error');
   }
 
-  const opt_options = get_optimization_options(options || '');
+  const opt_options = get_optimization_options();
   if (opt_options) {
     const opt_obj = {
       name: 'optimizing wasm'
     };
     build_result.tasks.push(opt_obj);
     if (!optimize_wasm(dir, result, opt_options, opt_obj)) {
-      return complete(false, 'Optimization error');
+      return complete(false, 'Pass 1 Optimization error');
     }
   }
 
@@ -313,8 +342,36 @@ export function build_project(project: RequestBody, base: string) {
     };
     build_result.tasks.push(clean_obj);
     if (!clean_wasm(dir, result, clean_obj)) {
-      return complete(false, 'Post-build error');
+      return complete(false, 'Pass 1 Clean error');
     }
+  }
+
+  if (opt_options) {
+    const opt_obj = {
+      name: 'optimizing wasm'
+    };
+    build_result.tasks.push(opt_obj);
+    if (!optimize_wasm(dir, result, opt_options, opt_obj)) {
+      return complete(false, 'Pass 2 Optimization error');
+    }
+  }
+
+  // if (strip) {
+  //   const clean_obj = {
+  //     name: 'cleaning wasm'
+  //   };
+  //   build_result.tasks.push(clean_obj);
+  //   if (!clean_wasm(dir, result, clean_obj)) {
+  //     return complete(false, 'Pass 2 Clean error');
+  //   }
+  // }
+
+  const guard_result_obj = {
+    name: 'guard checking wasm'
+  };
+  build_result.tasks.push(guard_result_obj);
+  if (!guard_check_wasm(dir, result, guard_result_obj)) {
+    return complete(false, 'Guard checking error');
   }
 
   build_result.output = serialize_file_data(result, compress || false);
