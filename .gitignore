@@ -1,7 +1,7 @@
 .DS_Store
 /bin
 bin.zip
-docker/c2wasm-api
+docker/compiler-api
 docker/wasi-sdk
 docker/clangd
 docker/hook-cleaner

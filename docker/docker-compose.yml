@@ -1,8 +1,8 @@
 version: '3.6'
-name: c2wasm-api
+name: compiler-api
 services:
   server:
-    container_name: c2wasm-api
+    container_name: compiler-api
     build: .
     restart: always
     ports:
@@ -10,6 +10,6 @@ services:
     working_dir: /app
     command: [ "./run.sh", "yarn", "dev" ]
     volumes:
-      - ../c2wasm-api/src:/app/src
+      - ../compiler-api/src:/app/src
     environment:
       NODE_ENV: development
