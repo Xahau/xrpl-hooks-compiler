@@ -41,11 +41,11 @@ top-level make `build` target can be replaced by running just the
 allows skipping the checkout of the `llvm-project`, `wasi-sdk`,
 `hook-cleaner-c` and `quickjslite` submodules.
 
-## API Wrapper or c2wasm-api
+## API Wrapper or compiler-api
 
-This project includes node.js endpoint where you can send c files and it will return compiled binary as a response. Development of this api happens under c2wasm-api folder. c2wasm-api folder contains README.md which has further information about the project.
+This project includes node.js endpoint where you can send c files and it will return compiled binary as a response. Development of this api happens under compiler-api folder. compiler-api folder contains README.md which has further information about the project.
 
-## Developing c2wasm-api without building all the binaries
+## Developing compiler-api without building all the binaries
 
 Make sure you have Docker installed. Clone this project. Download
 latest bin.zip file from the releases of this GitHub repository, put
@@ -56,7 +56,7 @@ unzip bin.zip
 ```
 
 - CD to docker folder `cd docker`
-- Run `make c2wasm-api && make clangd && make wasi-sdk && make hook-cleaner && make guard-checker  && make qjsc`
+- Run `make compiler-api && make clangd && make wasi-sdk && make hook-cleaner && make guard-checker && make qjsc`
 - Run `docker-compose build`
 - Run `docker-compose up` or `docker-compose up -d`
 - This should start server at port `:9000`, the actual compiling endpoint is this: [http://localhost:9000/api/build](localhost:9000/api/build). Note that it takes a while to start.

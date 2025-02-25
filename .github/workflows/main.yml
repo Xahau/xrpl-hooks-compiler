@@ -1,4 +1,4 @@
-name: c2wasm-api to Heroku CD
+name: compiler-api to Heroku CD
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 #set environment variables
 env:
   HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-  APP_NAME: ${{ 'xrpl-c2wasm-api' }}
+  APP_NAME: ${{ 'xrpl-compiler-api' }}
 
 jobs:
   build:

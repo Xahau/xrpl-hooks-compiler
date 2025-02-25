@@ -10,9 +10,9 @@
 [submodule "quickjslite"]
 	path = quickjslite
 	url = https://github.com/RichardAH/quickjslite
-[submodule "c2wasm-api/clang/includes"]
-	path = c2wasm-api/clang/includes
-	url = https://github.com/Xahau/xahaud
 [submodule "guard-checker"]
 	path = guard-checker
 	url = https://github.com/RichardAH/guard-checker
+[submodule "compiler-api/clang/includes"]
+	path = compiler-api/clang/includes
+	url = https://github.com/Xahau/xahaud

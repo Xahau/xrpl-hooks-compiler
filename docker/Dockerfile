@@ -4,11 +4,11 @@ MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 RUN apk --no-cache add su-exec
 COPY clangd /usr/bin
 WORKDIR /app
-COPY c2wasm-api/clang/includes/hook ./clang/includes
-COPY c2wasm-api/package.json .
-COPY c2wasm-api/yarn.lock .
-COPY c2wasm-api/tsconfig.json .
-COPY c2wasm-api/src ./src
+COPY compiler-api/clang/includes/hook ./clang/includes
+COPY compiler-api/package.json .
+COPY compiler-api/yarn.lock .
+COPY compiler-api/tsconfig.json .
+COPY compiler-api/src ./src
 COPY wasi-sdk ./clang/wasi-sdk
 COPY hook-cleaner /usr/bin
 COPY guard_checker /usr/bin

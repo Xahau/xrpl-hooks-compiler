@@ -10,7 +10,7 @@ checkout:
 	git submodule update --init --recursive hook-cleaner-c
 	git submodule update --init --recursive guard-checker
 	git submodule update --init --recursive quickjslite
-	git submodule update --init --recursive c2wasm-api/clang/includes
+	git submodule update --init --recursive compiler-api/clang/includes
 
 bin:
 	mkdir $@
