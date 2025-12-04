@@ -17,9 +17,11 @@ COPY qjsc /usr/bin
 COPY run.sh .
 ADD compile_flags.txt /etc/clangd/compile_flags.txt
 ADD .clang-tidy /work/.clang-tidy
+COPY .clang-tidy /tmp/language-server/.clang-tidy
 ADD .clangd /work/.clangd
+COPY .clangd /tmp/language-server/.clangd
 RUN cp -alf ./clang/includes /work/c && cp -alf clang/wasi-sdk/share/wasi-sysroot/include /usr && mkdir -p /usr/lib/clang/15.0.0 && cp -alf clang/wasi-sdk/lib/clang/15.0.0/include /usr/lib/clang/15.0.0
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup -h /app && chown appuser:appgroup /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup -h /app && chown appuser:appgroup /app && chown appuser:appgroup /tmp/language-server
 RUN yarn && yarn build
 EXPOSE $PORT
 CMD ["./run.sh", "node", "dist/index.js"]
