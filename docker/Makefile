@@ -5,7 +5,7 @@ MAIN_CONTAINER_TAG?=xrpl-hooks-compiler
 build: dependencies
 	docker build -t $(MAIN_CONTAINER_TAG) .
 
-dependencies: wasi-sdk compiler-api clangd hook-cleaner qjsc
+dependencies: wasi-sdk compiler-api clangd hook-cleaner guard-checker qjsc
 
 run:
 	docker run -p 127.0.0.1:9000:9000/tcp $(MAIN_CONTAINER_TAG):latest
