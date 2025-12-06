@@ -1,63 +1,85 @@
-name: compiler-api to Heroku CD
+name: Build and push Docker image to GitHub Container Registry
 
 on:
   push:
-    branches:
-    - master
+    branches: [master]
+    tags: ["*"]
   pull_request:
-    branches:
-    - master
-#set environment variables
+    branches: [master]
+
 env:
-  HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-  APP_NAME: ${{ 'xrpl-compiler-api' }}
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  # github.repository as <account>/<repo>
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
-    name: Test build image
-    runs-on: ubuntu-18.04
-    steps:
-      # Clone the repository
-      - name: Checkout
-        uses: actions/checkout@v2
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-      # - name: SSH Debug
-      #   uses: lhotari/action-upterm@v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Set up BuildKit Docker container builder to be able to build
+      # multi-platform images and export cache
+      # https://github.com/docker/setup-buildx-action
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login against a Docker registry except on PR
+      # https://github.com/docker/login-action
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download bin.zip
         uses: dsaltares/fetch-gh-release-asset@master
         with:
-          repo: "XRPLF/xrpl-hooks-compiler"
-          version: "tags/v1.25"
+          repo: "Xahau/xrpl-hooks-compiler"
+          version: "tags/v1.27"
           file: "bin.zip"
           target: "./bin.zip"
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      # Uncomment this if you want to debug pipeline
-      # - name: SSH Debug
-      #   uses: lhotari/action-upterm@v1
 
       - name: Unzip binaries
         run: |
           unzip -o bin.zip
 
-      - name: Local build
+      - name: Prepare build
         run: |
+          git submodule update --init --recursive compiler-api/clang/includes
           cd docker
           make dependencies
-          docker build . --tag web
 
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=pr
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=semver,pattern=latest
+            type=sha,prefix=git-
+          
       # Build Docker image
-      - name: Docker build
-        if: success() && contains('refs/heads/master', github.ref)
-        run: docker login --username=_ --password=$HEROKU_API_KEY registry.heroku.com
-
-      # Push the Docker image to Heroku Container Registry
-      - name: Publish
-        if: success() && contains('refs/heads/master', github.ref)
-        run: |
-          cd docker
-          make dependencies
-          heroku container:push web -a $APP_NAME
-          make clean
-          heroku container:release web -a $APP_NAME
+      # Build and push Docker image with Buildx (don't push on PR)
+      # https://github.com/docker/build-push-action
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
