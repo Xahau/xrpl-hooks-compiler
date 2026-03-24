@@ -2,10 +2,8 @@ import fastify from 'fastify';
 import { readFileSync, readdirSync } from "fs";
 import fastifyCors from 'fastify-cors';
 import fastifyWebSocket from 'fastify-websocket';
-import * as ws from 'ws';
-import * as rpc from 'vscode-ws-jsonrpc';
-import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
 import { build_project as build_c_project, requestBodySchema as requestCBodySchema, RequestBody as RequestCBody } from './chooks';
+import { handleCLanguageServer } from './language-server/c';
 import { build_project as build_js_project, requestBodySchema as requestJSBodySchema, RequestBody as RequestJSBody } from './jshooks';
 
 const server = fastify();
@@ -87,39 +85,12 @@ server.get('/', async (req, reply) => {
   reply.code(200).send('ok')
 })
 
-function toSocket(webSocket: ws): rpc.IWebSocket {
-  return {
-    send: content => webSocket.send(content),
-    onMessage: cb => webSocket.onmessage = event => cb(event.data),
-    onError: cb => webSocket.onerror = event => {
-      if ('message' in event) {
-        cb((event as any).message)
-      }
-    },
-    onClose: cb => webSocket.onclose = event => cb(event.code, event.reason),
-    dispose: () => webSocket.close()
-  }
-}
-
-server.get('/language-server/c', { websocket: true }, (connection /* SocketStream */, req /* FastifyRequest */) => {
-  let localConnection = rpcServer.createServerProcess('Clangd process', 'clangd', ['--compile-commands-dir=/etc/clangd', '--limit-results=200']);
-  let socket: rpc.IWebSocket = toSocket(connection.socket);
-  let newConnection = rpcServer.createWebSocketConnection(socket);
-  rpcServer.forward(newConnection, localConnection);
-  console.log(`Forwarding new client`);
-  socket.onClose((code, reason) => {
-    console.log('Client closed', reason);
-    try {
-      localConnection.dispose();
-    } catch (err) {
-      console.log(err)
-    }
+server.get('/language-server/c', { websocket: true }, (connection, req) => {
+  handleCLanguageServer(connection, {
+    tempDir: tempDir,
+    hookHeadersDir: process.cwd() + '/clang/includes',
   });
-  // connection.socket.on('message', message => {
-  //   // message.toString() === 'hi from client'
-  //   connection.socket.send('hi from server')
-  // })
-})
+});
 
 server.get('/api/header-files', async (req, reply) => {
   const dirPath = './clang/includes';
