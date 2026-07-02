@@ -7,8 +7,42 @@ import * as rpc from 'vscode-ws-jsonrpc';
 import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
 import { build_project as build_c_project, requestBodySchema as requestCBodySchema, RequestBody as RequestCBody } from './chooks';
 import { build_project as build_js_project, requestBodySchema as requestJSBodySchema, RequestBody as RequestJSBody } from './jshooks';
+import { sandbox_status } from './sandbox';
 
 const server = fastify();
+
+// Lightweight in-memory per-IP rate limiting for the (unauthenticated) compile
+// endpoints. Each build spawns compilers, so this caps trivial abuse/DoS.
+// Tune with BUILD_RATE_MAX / BUILD_RATE_WINDOW_MS; set BUILD_RATE_MAX=0 to
+// disable.
+const RATE_MAX = Number(process.env.BUILD_RATE_MAX || 60);
+const RATE_WINDOW_MS = Number(process.env.BUILD_RATE_WINDOW_MS || 60_000);
+const rateHits = new Map<string, { count: number; reset: number }>();
+
+function rate_limited(ip: string): boolean {
+  if (!(RATE_MAX > 0)) {
+    return false;
+  }
+  const now = Date.now();
+  const entry = rateHits.get(ip);
+  if (!entry || now >= entry.reset) {
+    rateHits.set(ip, { count: 1, reset: now + RATE_WINDOW_MS });
+    if (rateHits.size > 10000) {
+      const stale: string[] = [];
+      rateHits.forEach((v, k) => {
+        if (now >= v.reset) {
+          stale.push(k);
+        }
+      });
+      for (const k of stale) {
+        rateHits.delete(k);
+      }
+    }
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_MAX;
+}
 
 server.register(fastifyCors, {
   // put your options here
@@ -40,6 +74,9 @@ server.post('/api/build', async (req, reply) => {
   if (req.method !== 'POST') {
     return reply.code(405).send('405 Method Not Allowed');
   }
+  if (rate_limited(req.ip)) {
+    return reply.code(429).send('429 Too Many Requests');
+  }
   const baseName = tempDir + '/build_' + Math.random().toString(36).slice(2);
   let body: RequestCBody | undefined;
   try {
@@ -63,6 +100,9 @@ server.post('/api/build/js', async (req, reply) => {
   // Bail out early if not HTTP POST
   if (req.method !== 'POST') {
     return reply.code(405).send('405 Method Not Allowed');
+  }
+  if (rate_limited(req.ip)) {
+    return reply.code(429).send('429 Too Many Requests');
   }
   const baseName = tempDir + '/build_' + Math.random().toString(36).slice(2);
   let body: RequestJSBody | undefined;
@@ -140,5 +180,6 @@ server.listen(process.env.PORT || 9000, process.env.HOST || '::', (err, address)
     console.error(err)
     process.exit(1)
   }
+  console.log(sandbox_status())
   console.log(`Server listening at ${address}`)
 });

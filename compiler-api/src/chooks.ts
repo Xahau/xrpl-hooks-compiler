@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, existsSync, openSync, closeSync, readFileSync
 import { deflateSync } from "zlib";
 import { execSync } from "child_process";
 import { z } from 'zod';
+import { sandbox_wrap } from './sandbox';
 
 // Compilation code
 const llvmDir = process.cwd() + "/clang/wasi-sdk";
@@ -73,15 +74,60 @@ export type RequestBody = z.infer<typeof requestBodySchema>;
 //     ]
 // }
 
-function sanitize_shell_output<T>(out: T): T {
-  return out; // FIXME
+// Strip filesystem paths out of compiler/tool diagnostics before they are
+// returned to the caller. Without this the response leaks the internal build
+// path (/tmp/build_<rand>...) and, if the sandbox is ever bypassed, the paths
+// and contents of files pulled in via includes. The per-build directory prefix
+// is rewritten to bare basenames so users still see useful errors like
+// "h.c:3:5: error: ...", and any other absolute path is redacted.
+function sanitize_shell_output(out: string, dir: string): string {
+  if (!out) {
+    return out;
+  }
+  let s = out;
+  // Drop the build directory prefix: /tmp/build_ab12.$/h.c -> h.c
+  s = s.split(dir + '/').join('');
+  s = s.split(dir).join('');
+  // Redact any remaining absolute path (host layout / leaked file paths).
+  s = s.replace(/(^|[^\w/])\/[^\s:'"]+/g, '$1[path]');
+  return s;
+}
+
+// Defense-in-depth: reject preprocessor directives that reference absolute
+// paths or parent-directory traversal. The compile sandbox is the primary
+// control (such files do not exist inside it), but this returns a clean error
+// for the common attack shape and covers the unsandboxed fallback. Note it
+// cannot see through macro-expanded includes — that residual is what the
+// sandbox is for.
+function find_forbidden_include(src: string): string | null {
+  const isBad = (p: string) => p.startsWith('/') || /(^|[\\/])\.\.([\\/]|$)/.test(p);
+  const lines = src.split(/\r?\n/);
+  const directive = /^\s*#\s*(include|include_next|embed)\b\s*(?:"([^"]*)"|<([^>]*)>)/;
+  const hasInclude = /__has_(?:include|include_next|embed)\s*\(\s*(?:"([^"]*)"|<([^>]*)>)/g;
+  for (const line of lines) {
+    const d = directive.exec(line);
+    if (d) {
+      const p = d[2] ?? d[3];
+      if (p && isBad(p)) {
+        return `Forbidden #${d[1]} path in source: ${p}`;
+      }
+    }
+    let h: RegExpExecArray | null;
+    while ((h = hasInclude.exec(line)) !== null) {
+      const p = h[1] ?? h[2];
+      if (p && isBad(p)) {
+        return `Forbidden __has_include path in source: ${p}`;
+      }
+    }
+  }
+  return null;
 }
 
 function shell_exec(cmd: string, cwd: string) {
   const out = openSync(cwd + '/out.log', 'w');
   let error = '';
   try {
-    execSync(cmd, { cwd, stdio: [null, out, out], });
+    execSync(sandbox_wrap(cmd, cwd), { cwd, stdio: [null, out, out], });
   } catch (ex: unknown) {
     if (ex instanceof Error) {
       error = ex?.message;
@@ -177,7 +223,7 @@ function link_c_files(source_files: string[], include_path: string, link_options
   const clang = llvmDir + '/bin/clang';
   const cmd = clang + ' ' + optimization_level + ' ' + get_clang_options() + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output + ' ' + get_include_path(include_path);
   const out = shell_exec(cmd, cwd);
-  result_obj.console = sanitize_shell_output(out);
+  result_obj.console = sanitize_shell_output(out, cwd);
   if (!existsSync(output)) {
     result_obj.success = false;
     return false;
@@ -194,7 +240,7 @@ function optimize_wasm(cwd: string, inplace: string, opt_options: string, result
   let success = true;
   try {
     renameSync(inplace, unopt);
-    execSync(cmd, { cwd, stdio: [null, out, out], });
+    execSync(sandbox_wrap(cmd, cwd), { cwd, stdio: [null, out, out], });
   } catch (ex: unknown) {
     success = false;
     if (ex instanceof Error) {
@@ -204,7 +250,7 @@ function optimize_wasm(cwd: string, inplace: string, opt_options: string, result
     closeSync(out);
   }
   const out_msg = readFileSync(cwd + '/opt.log').toString() || error;
-  result_obj.console = sanitize_shell_output(out_msg);
+  result_obj.console = sanitize_shell_output(out_msg, cwd);
   result_obj.success = success;
   return success;
 }
@@ -215,7 +261,7 @@ function clean_wasm(cwd: string, inplace: string, result_obj: Task) {
   let error = '';
   let success = true;
   try {
-    execSync(cmd, { cwd, stdio: [null, out, out], });
+    execSync(sandbox_wrap(cmd, cwd), { cwd, stdio: [null, out, out], });
   } catch (ex: unknown) {
     success = false;
     if (ex instanceof Error) {
@@ -225,7 +271,7 @@ function clean_wasm(cwd: string, inplace: string, result_obj: Task) {
     closeSync(out);
   }
   const out_msg = readFileSync(cwd + '/cleanout.log').toString() || error;
-  result_obj.console = sanitize_shell_output(out_msg);
+  result_obj.console = sanitize_shell_output(out_msg, cwd);
   result_obj.success = success;
   return success;
 }
@@ -236,7 +282,7 @@ function guard_check_wasm(cwd: string, inplace: string, result_obj: Task) {
   let error = '';
   let success = true;
   try {
-    execSync(cmd, { cwd, stdio: [null, out, out], });
+    execSync(sandbox_wrap(cmd, cwd), { cwd, stdio: [null, out, out], });
   } catch (ex: unknown) {
     success = false;
     if (ex instanceof Error) {
@@ -246,7 +292,7 @@ function guard_check_wasm(cwd: string, inplace: string, result_obj: Task) {
     closeSync(out);
   }
   const out_msg = readFileSync(cwd + '/guardout.log').toString() || error;
-  result_obj.console = sanitize_shell_output(out_msg);
+  result_obj.console = sanitize_shell_output(out_msg, cwd);
   result_obj.success = success;
   return success;
 }
@@ -262,7 +308,9 @@ export function build_project(project: RequestBody, base: string) {
     tasks: [],
   };
   const dir = base + '.$';
-  const result = base + '.wasm';
+  // Keep every build artifact inside the per-build directory so the compile
+  // sandbox only needs to expose that single directory read-write.
+  const result = dir + '/output.wasm';
   const customHeadersDir = dir + "/includes";
 
   const complete = (success: boolean, message: string) => {
@@ -318,6 +366,11 @@ export function build_project(project: RequestBody, base: string) {
       return complete(false, 'Source file ' + name + ' is empty');
     }
 
+    const forbidden = find_forbidden_include(src);
+    if (forbidden) {
+      return complete(false, forbidden);
+    }
+
     writeFileSync(fileName, src);
   }
 
@@ -333,6 +386,10 @@ export function build_project(project: RequestBody, base: string) {
       const src = file.src;
       if (!src) {
         return complete(false, "Header file " + name + " is empty");
+      }
+      const forbidden = find_forbidden_include(src);
+      if (forbidden) {
+        return complete(false, forbidden);
       }
       writeFileSync(fileName, src);
     }
