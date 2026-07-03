@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
+import { spawn } from 'child_process';
 import { join } from "path";
 import * as rpc from 'vscode-ws-jsonrpc';
 import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
@@ -66,16 +67,6 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
   AccessibleDirectories: [ "${workspaceDir}", "/usr/include", "/usr/lib/clang", "${hookHeadersDir}" ]
 `;
   writeFileSync(join(workspaceDir, '.clangd'), clangdConfigContent);
-
-  // run clangd with the following arguments
-  let localConnection = rpcServer.createServerProcess('Clangd process', 'clangd', [
-    `--compile-commands-dir=${workspaceDir}`,
-    `--limit-results=200`,
-    `--background-index=false`,
-    `--log=error`
-  ], {
-    cwd: workspaceDir
-  });
 
   // intercept messages from the client and process them
   let initialized = false;
@@ -272,20 +263,48 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
     }
   };
 
-  let newConnection = rpcServer.createWebSocketConnection(interceptedSocket);
+  // Spawn clangd ourselves so we can attach explicit error handlers to its
+  // streams. The default server-process helper leaves stdin/stdout errors easy
+  // to miss, which can bring down the shared API when a client disconnects
+  // mid-stream.
+  const serverProcess = spawn('clangd', [
+    `--compile-commands-dir=${workspaceDir}`,
+    `--limit-results=200`,
+    `--background-index=false`,
+    `--log=error`
+  ], {
+    cwd: workspaceDir
+  });
 
-  rpcServer.forward(newConnection, localConnection);
-  // console.log(`Forwarding new client, workspace: ${workspaceDir}`);
+  const localConnection = rpcServer.createProcessStreamConnection(serverProcess);
+  const newConnection = rpcServer.createWebSocketConnection(interceptedSocket);
+
+  let disposed = false;
+  const dispose = (reason: string) => {
+    if (disposed) return;
+    disposed = true;
+    console.log('Tearing down language-server session:', reason);
+    try { localConnection.dispose(); } catch (err) { console.error('Error disposing clangd connection:', err); }
+    try { serverProcess.kill(); } catch (err) { console.error('Error killing clangd:', err); }
+    try { rmSync(workspaceDir, { recursive: true, force: true }); } catch (err) { console.error('Error cleaning up workspace directory:', err); }
+  };
+
+  serverProcess.on('error', (err) => dispose(`clangd process error: ${err}`));
+  serverProcess.on('exit', (code, sig) => dispose(`clangd exited (code=${code}, signal=${sig})`));
+  serverProcess.stdin?.on('error', (err) => dispose(`clangd stdin error: ${err}`));
+  serverProcess.stdout?.on('error', (err) => dispose(`clangd stdout error: ${err}`));
+  serverProcess.stderr?.on('data', (data) => console.error(`clangd: ${data}`));
+  connection.socket.on('error', (err) => dispose(`websocket error: ${err}`));
+
+  try {
+    rpcServer.forward(newConnection, localConnection);
+    console.log(`Forwarding new client, workspace: ${workspaceDir}`);
+  } catch (err) {
+    dispose(`failed to set up forwarding: ${err}`);
+    return;
+  }
 
   interceptedSocket.onClose((code, reason) => {
-    // console.log('Client closed', code, reason);
-    try {
-      localConnection.dispose();
-      // delete the temporary directory
-      rmSync(workspaceDir, { recursive: true, force: true });
-      // console.log('Cleaned up workspace directory:', workspaceDir);
-    } catch (err) {
-      console.error('Error cleaning up:', err);
-    }
+    dispose(`client closed: ${reason}`);
   });
 }

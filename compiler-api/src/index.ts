@@ -6,6 +6,16 @@ import { build_project as build_c_project, requestBodySchema as requestCBodySche
 import { handleCLanguageServer } from './language-server/c';
 import { build_project as build_js_project, requestBodySchema as requestJSBodySchema, RequestBody as RequestJSBody } from './jshooks';
 
+// Defense in depth: a stray async error (e.g. a broken clangd stdio pipe) must
+// never take down the shared compile API. Log and keep serving instead of
+// letting the default handler crash the process.
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (ignored to keep service alive):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (ignored to keep service alive):', reason);
+});
+
 const server = fastify();
 
 server.register(fastifyCors, {
