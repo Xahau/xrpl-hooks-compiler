@@ -93,9 +93,11 @@ function shell_exec(cmd: string, cwd: string) {
   return result;
 }
 
-const optimization_level = '-O3'
+const clang_optimization_level = '-O3'
 
 function get_optimization_options() {
+  // Do not append wasm-opt -O3 here. It can remove memory/data segments that
+  // are only read indirectly by Hook API imports such as trace/accept/rollback.
   const options = [
     '--shrink-level=100000000',
     '--coalesce-locals-learning',
@@ -119,8 +121,7 @@ function get_optimization_options() {
     '--remove-unused-brs',
     '--memory-packing',
     '-c',
-    '--avoid-reinterprets',
-    optimization_level
+    '--avoid-reinterprets'
   ]
 
   return options.join(' ');
@@ -175,7 +176,7 @@ function validate_filename(name: string) {
 function link_c_files(source_files: string[], include_path: string, link_options: string, cwd: string, output: string, result_obj: Task) {
   const files = source_files.join(' ');
   const clang = llvmDir + '/bin/clang';
-  const cmd = clang + ' ' + optimization_level + ' ' + get_clang_options() + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output + ' ' + get_include_path(include_path);
+  const cmd = clang + ' ' + clang_optimization_level + ' ' + get_clang_options() + ' ' + get_lld_options(link_options) + ' ' + files + ' -o ' + output + ' ' + get_include_path(include_path);
   const out = shell_exec(cmd, cwd);
   result_obj.console = sanitize_shell_output(out);
   if (!existsSync(output)) {
