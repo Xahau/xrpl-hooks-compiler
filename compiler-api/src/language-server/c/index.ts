@@ -95,6 +95,10 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
       if (!fileContent && existsSync(filePath)) {
         fileContent = readFileSync(filePath, 'utf-8');
       } else if (!fileContent) {
+        // A well-behaved client sends didOpen (with full text) before any other
+        // request for a document, so bootstrapping from empty here means the
+        // client skipped that step and range-based edits may desync.
+        console.warn('Document opened without content, starting empty:', fileUri);
         fileContent = ''; // empty file if it doesn't exist
       }
 
@@ -109,7 +113,7 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
           params: {
             textDocument: {
               uri: fileUri,
-              languageId: fileName.endsWith('.h') ? 'c' : 'c',
+              languageId: 'c',
               version: 1,
               text: fileContent
             }
@@ -127,11 +131,16 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
 
   // create a custom IWebSocket that intercepts messages
   const interceptedSocket: rpc.IWebSocket = {
-    send: (content) => connection.socket.send(content),
+    send: (content) => {
+      // clangd replies with URIs under the temp workspace; translate them back
+      // to the URIs the client opened so it can match its own documents.
+      const outgoing = content.toString().split(`file://${workspaceDir}`).join('file://');
+      connection.socket.send(outgoing);
+    },
     onMessage: (cb) => {
       // console.log('onMessage callback registered');
       messageHandler = cb;
-      connection.socket.onmessage = (event) => {
+      connection.socket.onmessage = (event: any) => {
         const data = event.data;
         // console.log('Raw message received:', data.toString().substring(0, 100));
 
@@ -221,6 +230,22 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
             message.params.textDocument.uri = fileUri;
           }
 
+          // handle textDocument/didClose messages and stop tracking the document
+          if (message.method === 'textDocument/didClose' && message.params?.textDocument?.uri) {
+            const uri = message.params.textDocument.uri;
+
+            // console.log('textDocument/didClose received, URI:', uri);
+
+            // extract the file name from the URI (example: file://file.c -> file.c)
+            const fileName = uri.replace(/^file:\/\//, '');
+            const filePath = join(workspaceDir, fileName);
+
+            // convert the URI to file:// URI
+            const fileUri = `file://${filePath}`;
+            message.params.textDocument.uri = fileUri;
+            openDocuments.delete(fileUri);
+          }
+
           // handle other textDocument requests (hover, completion, etc.) - ensure document is open
           if (message.method && message.method.startsWith('textDocument/') &&
               message.method !== 'textDocument/didOpen' &&
@@ -247,14 +272,14 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
       };
     },
     onError: (cb) => {
-      connection.socket.onerror = (event) => {
+      connection.socket.onerror = (event: any) => {
         if ('message' in event) {
           cb((event as any).message);
         }
       };
     },
     onClose: (cb) => {
-      connection.socket.onclose = (event) => {
+      connection.socket.onclose = (event: any) => {
         cb(event.code, event.reason);
       };
     },
@@ -294,7 +319,7 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
   serverProcess.stdin?.on('error', (err) => dispose(`clangd stdin error: ${err}`));
   serverProcess.stdout?.on('error', (err) => dispose(`clangd stdout error: ${err}`));
   serverProcess.stderr?.on('data', (data) => console.error(`clangd: ${data}`));
-  connection.socket.on('error', (err) => dispose(`websocket error: ${err}`));
+  connection.socket.on('error', (err: Error) => dispose(`websocket error: ${err}`));
 
   try {
     rpcServer.forward(newConnection, localConnection);
