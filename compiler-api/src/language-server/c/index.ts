@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import { spawn } from 'child_process';
-import { join } from "path";
+import { dirname, join } from "path";
 import * as rpc from 'vscode-ws-jsonrpc';
 import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
 import { SocketStream } from 'fastify-websocket';
@@ -68,60 +68,42 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
 `;
   writeFileSync(join(workspaceDir, '.clangd'), clangdConfigContent);
 
-  // intercept messages from the client and process them
-  let initialized = false;
-  let messageHandler: ((data: any) => void) | null = null;
-  const openDocuments = new Set<string>(); // track opened documents
+  const sendDidOpen = (send: (data: any) => void, uri: string, text: string) => {
+    send(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'textDocument/didOpen',
+      params: {
+        textDocument: { uri, languageId: 'c', version: 1, text }
+      }
+    }));
+  };
 
-  /**
-   * Helper function to ensure a file is opened in clangd
-   */
-  const ensureDocumentOpen = (uri: string, text?: string): string => {
+  const toWorkspaceDocument = (uri: string): { filePath: string; fileUri: string } => {
     const fileName = uri.replace(/^file:\/\//, '');
     const filePath = join(workspaceDir, fileName);
-    const fileUri = `file://${filePath}`;
+    return { filePath, fileUri: `file://${filePath}` };
+  };
+
+  const openDocuments = new Set<string>();
+
+  const ensureDocumentOpen = (send: (data: any) => void, uri: string): string => {
+    const { filePath, fileUri } = toWorkspaceDocument(uri);
 
     if (!openDocuments.has(fileUri)) {
-      // console.log('Auto-opening document:', fileUri);
+      mkdirSync(dirname(filePath), { recursive: true });
 
-      // create the directory if it doesn't exist
-      const dir = join(workspaceDir, fileName.split('/').slice(0, -1).join('/'));
-      if (dir !== workspaceDir) {
-        mkdirSync(dir, { recursive: true });
-      }
-
-      // read file content if not provided
-      let fileContent = text;
-      if (!fileContent && existsSync(filePath)) {
+      let fileContent = '';
+      if (existsSync(filePath)) {
         fileContent = readFileSync(filePath, 'utf-8');
-      } else if (!fileContent) {
+      } else {
         // A well-behaved client sends didOpen (with full text) before any other
         // request for a document, so bootstrapping from empty here means the
         // client skipped that step and range-based edits may desync.
         console.warn('Document opened without content, starting empty:', fileUri);
-        fileContent = ''; // empty file if it doesn't exist
       }
 
-      // write the file to the temporary directory
       writeFileSync(filePath, fileContent);
-
-      // send textDocument/didOpen to clangd
-      if (messageHandler) {
-        const didOpenMessage = {
-          jsonrpc: '2.0',
-          method: 'textDocument/didOpen',
-          params: {
-            textDocument: {
-              uri: fileUri,
-              languageId: 'c',
-              version: 1,
-              text: fileContent
-            }
-          }
-        };
-        // console.log('Sending didOpen for:', fileUri);
-        messageHandler(JSON.stringify(didOpenMessage));
-      }
+      sendDidOpen(send, fileUri, fileContent);
 
       openDocuments.add(fileUri);
     }
@@ -137,22 +119,16 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
       const outgoing = content.toString().split(`file://${workspaceDir}`).join('file://');
       connection.socket.send(outgoing);
     },
-    onMessage: (cb) => {
-      // console.log('onMessage callback registered');
-      messageHandler = cb;
+    onMessage: (messageHandler) => {
       connection.socket.onmessage = (event: any) => {
         const data = event.data;
-        // console.log('Raw message received:', data.toString().substring(0, 100));
 
         try {
           const message = JSON.parse(data.toString());
-          // console.log('Parsed message method:', message.method);
+          const method = message.method;
 
-          // set the workspace folder
-          if (message.method === 'initialize' && !initialized) {
-            initialized = true;
-            // console.log('Initializing workspace:', workspaceDir);
-            // set the workspace folder
+          if (method === 'initialize') {
+            // Point clangd at the temporary workspace used for this session.
             if (!message.params) {
               message.params = {};
             }
@@ -164,123 +140,70 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
             }
           }
 
-          // handle textDocument/didOpen messages and write the file to the temporary directory
-          if (message.method === 'textDocument/didOpen' && message.params?.textDocument) {
-            const uri = message.params.textDocument.uri;
-            const text = message.params.textDocument.text;
+          const uri = message.params.textDocument.uri;
+          const { filePath, fileUri } = toWorkspaceDocument(uri);
 
-            // console.log('textDocument/didOpen received, URI:', uri);
+          if (method === 'textDocument/didOpen' && message.params?.textDocument) {
+            // Mirror the opened client document into the temporary workspace.            
 
-            // extract the file name from the URI (example: file://file.c -> file.c)
-            const fileName = uri.replace(/^file:\/\//, '');
-            const filePath = join(workspaceDir, fileName);
+            mkdirSync(dirname(filePath), { recursive: true });
+            writeFileSync(filePath, message.params.textDocument.text);
 
-            // create the directory if it doesn't exist
-            const dir = join(workspaceDir, fileName.split('/').slice(0, -1).join('/'));
-            if (dir !== workspaceDir) {
-              mkdirSync(dir, { recursive: true });
-            }
-
-            // write the file to the temporary directory
-            // console.log('Writing file to ', filePath);
-            writeFileSync(filePath, text);
-
-            // convert the URI to file:// URI
-            const fileUri = `file://${filePath}`;
-            message.params.textDocument.uri = fileUri;
             openDocuments.add(fileUri);
           }
 
-          // handle textDocument/didChange messages and update the file in the temporary directory
-          if (message.method === 'textDocument/didChange' && message.params?.textDocument) {
-            const uri = message.params.textDocument.uri;
+          if (method === 'textDocument/didClose' && message.params?.textDocument?.uri) {
+            // Stop tracking the mirrored workspace document after the client closes it.
 
-            // console.log('textDocument/didChange received, URI:', uri);
-
-            // ensure the document is open
-            const fileUri = ensureDocumentOpen(uri);
-
-            const fileName = uri.replace(/^file:\/\//, '');
-            const filePath = join(workspaceDir, fileName);
-
-            // apply the changes to the file
-            if (message.params.contentChanges && message.params.contentChanges.length > 0) {
-              // console.log('Content changes:', message.params.contentChanges.length);
-
-              // read current file content
-              let currentContent = '';
-              if (existsSync(filePath)) {
-                currentContent = readFileSync(filePath, 'utf-8');
-              }
-
-              // apply all changes sequentially
-              let updatedContent = currentContent;
-              for (const change of message.params.contentChanges) {
-                // console.log('Applying change:', change.range ? `range ${change.range.start.line}:${change.range.start.character}-${change.range.end.line}:${change.range.end.character}` : 'full text');
-                updatedContent = applyChange(updatedContent, change);
-              }
-
-              // write the updated content
-              // console.log('Updating file:', filePath);
-              // console.log('updatedContent: ', updatedContent);
-              writeFileSync(filePath, updatedContent);
-            }
-
-            // convert the URI to file:// URI
-            message.params.textDocument.uri = fileUri;
-          }
-
-          // handle textDocument/didClose messages and stop tracking the document
-          if (message.method === 'textDocument/didClose' && message.params?.textDocument?.uri) {
-            const uri = message.params.textDocument.uri;
-
-            // console.log('textDocument/didClose received, URI:', uri);
-
-            // extract the file name from the URI (example: file://file.c -> file.c)
-            const fileName = uri.replace(/^file:\/\//, '');
-            const filePath = join(workspaceDir, fileName);
-
-            // convert the URI to file:// URI
-            const fileUri = `file://${filePath}`;
-            message.params.textDocument.uri = fileUri;
             openDocuments.delete(fileUri);
           }
 
-          // handle other textDocument requests (hover, completion, etc.) - ensure document is open
-          if (message.method && message.method.startsWith('textDocument/') &&
-              message.method !== 'textDocument/didOpen' &&
-              message.method !== 'textDocument/didChange' &&
-              message.method !== 'textDocument/didClose' &&
-              message.params?.textDocument?.uri) {
-            const uri = message.params.textDocument.uri;
-            // console.log(`Ensuring document is open for ${message.method}:`, uri);
-            const fileUri = ensureDocumentOpen(uri);
-            message.params.textDocument.uri = fileUri;
+          if (method === 'textDocument/didChange' && message.params?.textDocument) {
+            // Apply incremental client edits to the mirrored workspace file.
+
+            ensureDocumentOpen(messageHandler, uri);
+
+            if (message.params.contentChanges && message.params.contentChanges.length > 0) {
+              let currentContent = '';
+              if (existsSync(filePath))
+                currentContent = readFileSync(filePath, 'utf-8');
+
+              let updatedContent = currentContent;
+              for (const change of message.params.contentChanges)
+                updatedContent = applyChange(updatedContent, change);
+
+              writeFileSync(filePath, updatedContent);
+            }
           }
 
-          // send the converted message to clangd
-          if (messageHandler) {
-            messageHandler(JSON.stringify(message));
+          if (method && method.startsWith('textDocument/') &&
+              method !== 'textDocument/didOpen' &&
+              method !== 'textDocument/didChange' &&
+              method !== 'textDocument/didClose' &&
+              message.params?.textDocument?.uri) {
+            // Ensure clangd has an opened workspace document before document requests.
+            ensureDocumentOpen(messageHandler, uri);
           }
+          
+          message.params.textDocument.uri = fileUri;
+
+          messageHandler(JSON.stringify(message));
         } catch (err) {
           console.error('Error processing message:', err);
-          // if there is a JSON parsing error, forward the original data
-          if (messageHandler) {
-            messageHandler(data);
-          }
+          messageHandler(data);
         }
       };
     },
-    onError: (cb) => {
+    onError: (errorHandler) => {
       connection.socket.onerror = (event: any) => {
         if ('message' in event) {
-          cb((event as any).message);
+          errorHandler((event as any).message);
         }
       };
     },
-    onClose: (cb) => {
+    onClose: (closeHandler) => {
       connection.socket.onclose = (event: any) => {
-        cb(event.code, event.reason);
+        closeHandler(event.code, event.reason);
       };
     },
     dispose: () => {
@@ -301,15 +224,13 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
     cwd: workspaceDir
   });
 
-  const localConnection = rpcServer.createProcessStreamConnection(serverProcess);
-  const newConnection = rpcServer.createWebSocketConnection(interceptedSocket);
-
+  let localConnection: rpcServer.IConnection | null = null;
   let disposed = false;
   const dispose = (reason: string) => {
     if (disposed) return;
     disposed = true;
     console.log('Tearing down language-server session:', reason);
-    try { localConnection.dispose(); } catch (err) { console.error('Error disposing clangd connection:', err); }
+    try { localConnection?.dispose(); } catch (err) { console.error('Error disposing clangd connection:', err); }
     try { serverProcess.kill(); } catch (err) { console.error('Error killing clangd:', err); }
     try { rmSync(workspaceDir, { recursive: true, force: true }); } catch (err) { console.error('Error cleaning up workspace directory:', err); }
   };
@@ -322,6 +243,8 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
   connection.socket.on('error', (err: Error) => dispose(`websocket error: ${err}`));
 
   try {
+    localConnection = rpcServer.createProcessStreamConnection(serverProcess);
+    const newConnection = rpcServer.createWebSocketConnection(interceptedSocket);
     rpcServer.forward(newConnection, localConnection);
     console.log(`Forwarding new client, workspace: ${workspaceDir}`);
   } catch (err) {
