@@ -1,5 +1,6 @@
 import fastify from 'fastify';
 import { readFileSync, readdirSync } from "fs";
+import { spawn } from 'child_process';
 import fastifyCors from 'fastify-cors';
 import fastifyWebSocket from 'fastify-websocket';
 import * as ws from 'ws';
@@ -7,6 +8,16 @@ import * as rpc from 'vscode-ws-jsonrpc';
 import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
 import { build_project as build_c_project, requestBodySchema as requestCBodySchema, RequestBody as RequestCBody } from './chooks';
 import { build_project as build_js_project, requestBodySchema as requestJSBodySchema, RequestBody as RequestJSBody } from './jshooks';
+
+// Defense in depth: a stray async error (e.g. a broken clangd stdio pipe) must
+// never take down the shared compile API. Log and keep serving instead of
+// letting the default handler crash the process.
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (ignored to keep service alive):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (ignored to keep service alive):', reason);
+});
 
 const server = fastify();
 
@@ -102,23 +113,46 @@ function toSocket(webSocket: ws): rpc.IWebSocket {
 }
 
 server.get('/language-server/c', { websocket: true }, (connection /* SocketStream */, req /* FastifyRequest */) => {
-  let localConnection = rpcServer.createServerProcess('Clangd process', 'clangd', ['--compile-commands-dir=/etc/clangd', '--limit-results=200']);
-  let socket: rpc.IWebSocket = toSocket(connection.socket);
-  let newConnection = rpcServer.createWebSocketConnection(socket);
-  rpcServer.forward(newConnection, localConnection);
-  console.log(`Forwarding new client`);
-  socket.onClose((code, reason) => {
-    console.log('Client closed', reason);
-    try {
-      localConnection.dispose();
-    } catch (err) {
-      console.log(err)
-    }
-  });
-  // connection.socket.on('message', message => {
-  //   // message.toString() === 'hi from client'
-  //   connection.socket.send('hi from server')
-  // })
+  // Spawn clangd ourselves (instead of rpcServer.createServerProcess) so we can
+  // attach 'error' handlers to its stdio pipes. createServerProcess only guards
+  // the process and stderr, leaving stdin/stdout unhandled: a client that
+  // disconnects or desyncs mid-stream triggers an EPIPE/write error on clangd's
+  // stdin, which with no listener becomes an unhandled exception that crashes
+  // the whole Node process and takes the shared compile API offline.
+  const serverProcess = spawn('clangd', ['--compile-commands-dir=/etc/clangd', '--limit-results=200']);
+
+  const socket: rpc.IWebSocket = toSocket(connection.socket);
+
+  let disposed = false;
+  const dispose = (reason: string) => {
+    if (disposed) return;
+    disposed = true;
+    console.log('Tearing down language-server session:', reason);
+    try { serverProcess.kill(); } catch (err) { console.error('Error killing clangd:', err); }
+    try { socket.dispose(); } catch (err) { console.error('Error closing socket:', err); }
+  };
+
+  // Guard every stream that can emit an async 'error'. Any of these firing
+  // without a listener would otherwise crash the whole process; here they only
+  // tear down this one session.
+  serverProcess.on('error', (err) => dispose(`clangd process error: ${err}`));
+  serverProcess.on('exit', (code, sig) => dispose(`clangd exited (code=${code}, signal=${sig})`));
+  serverProcess.stdin?.on('error', (err) => dispose(`clangd stdin error: ${err}`));
+  serverProcess.stdout?.on('error', (err) => dispose(`clangd stdout error: ${err}`));
+  serverProcess.stderr?.on('data', (data) => console.error(`clangd: ${data}`));
+  connection.socket.on('error', (err) => dispose(`websocket error: ${err}`));
+
+  try {
+    const localConnection = rpcServer.createProcessStreamConnection(serverProcess);
+    const newConnection = rpcServer.createWebSocketConnection(socket);
+    rpcServer.forward(newConnection, localConnection);
+    console.log(`Forwarding new client`);
+  } catch (err) {
+    dispose(`failed to set up forwarding: ${err}`);
+    return;
+  }
+
+  socket.onClose((code, reason) => dispose(`client closed: ${reason}`));
 })
 
 server.get('/api/header-files', async (req, reply) => {
