@@ -36,8 +36,10 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
   AccessibleDirectories: [ "${workspaceDir}", "/usr/include", "/usr/lib/clang", "${hookHeadersDir}" ]
 `;
   writeFileSync(join(workspaceDir, '.clangd'), clangdConfigContent);
+  
+  type MessageHandler = Parameters<rpc.IWebSocket['onMessage']>[0];
 
-  const sendDidOpen = (send: (data: any) => void, uri: string, text: string) => {
+  const sendDidOpen = (send: MessageHandler, uri: string, text: string) => {
     send(JSON.stringify({
       jsonrpc: '2.0',
       method: 'textDocument/didOpen',
@@ -55,7 +57,7 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
 
   const openDocuments = new Set<string>();
 
-  const ensureDocumentOpen = (send: (data: any) => void, uri: string): string => {
+  const ensureDocumentOpen = (send: MessageHandler, uri: string): string => {
     const { filePath, fileUri } = toWorkspaceDocument(uri);
 
     if (!openDocuments.has(fileUri)) {
@@ -89,7 +91,7 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
       connection.socket.send(outgoing);
     },
     onMessage: (messageHandler) => {
-      connection.socket.onmessage = (event: any) => {
+      connection.socket.onmessage = (event) => {
         const data = event.data;
 
         try {
@@ -172,14 +174,14 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
       };
     },
     onError: (errorHandler) => {
-      connection.socket.onerror = (event: any) => {
+      connection.socket.onerror = (event) => {
         if ('message' in event) {
-          errorHandler((event as any).message);
+          errorHandler(event.message);
         }
       };
     },
     onClose: (closeHandler) => {
-      connection.socket.onclose = (event: any) => {
+      connection.socket.onclose = (event) => {
         closeHandler(event.code, event.reason);
       };
     },
