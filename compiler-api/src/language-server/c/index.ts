@@ -4,42 +4,11 @@ import { dirname, join } from "path";
 import * as rpc from 'vscode-ws-jsonrpc';
 import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
 import { SocketStream } from 'fastify-websocket';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 
 export interface LanguageServerConfig {
   tempDir: string;
   hookHeadersDir?: string;
-}
-
-/**
- * Helper function to convert LSP Position to text offset
- */
-function positionToOffset(text: string, position: { line: number; character: number }): number {
-  const lines = text.split('\n');
-  let offset = 0;
-  for (let i = 0; i < position.line && i < lines.length; i++) {
-    offset += lines[i].length + 1; // +1 for newline character
-  }
-  return offset + Math.min(position.character, lines[position.line]?.length || 0);
-}
-
-/**
- * Helper function to apply a single change to text
- */
-function applyChange(originalText: string, change: {
-  range?: { start: { line: number; character: number }; end: { line: number; character: number } };
-  rangeLength?: number;
-  text: string;
-}): string {
-  // Full text replacement (no range specified)
-  if (!change.range) {
-    return change.text;
-  }
-
-  // Range-based replacement
-  const startOffset = positionToOffset(originalText, change.range.start);
-  const endOffset = positionToOffset(originalText, change.range.end);
-
-  return originalText.slice(0, startOffset) + change.text + originalText.slice(endOffset);
 }
 
 /**
@@ -168,11 +137,19 @@ export function handleCLanguageServer(connection: SocketStream, config: Language
               if (existsSync(filePath))
                 currentContent = readFileSync(filePath, 'utf-8');
 
-              let updatedContent = currentContent;
-              for (const change of message.params.contentChanges)
-                updatedContent = applyChange(updatedContent, change);
+              const currentDocument = TextDocument.create(
+                fileUri,
+                'c',
+                message.params.textDocument.version ?? 0,
+                currentContent
+              );
+              const updatedDocument = TextDocument.update(
+                currentDocument,
+                message.params.contentChanges,
+                message.params.textDocument.version ?? currentDocument.version + 1
+              );
 
-              writeFileSync(filePath, updatedContent);
+              writeFileSync(filePath, updatedDocument.getText());
             }
           }
 
