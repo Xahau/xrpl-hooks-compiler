@@ -4,7 +4,7 @@ MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 RUN apk --no-cache add su-exec
 COPY clangd /usr/bin
 WORKDIR /app
-COPY compiler-api/clang/includes/hook ./clang/includes
+COPY compiler-api/clang/includes/hook/*.h ./clang/includes/
 COPY compiler-api/package.json .
 COPY compiler-api/yarn.lock .
 COPY compiler-api/tsconfig.json .
