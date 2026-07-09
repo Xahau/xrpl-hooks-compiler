@@ -34,13 +34,27 @@ RUN apk --no-cache add --update build-base git \
     && git checkout "$GUARD_CHECKER_REF" \
     && make
 
+FROM --platform=linux/amd64 node:17-alpine AS xahaud-includes
+MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
+
+ARG XAHAUD_REPO=https://github.com/Xahau/xahaud
+ARG XAHAUD_REF=bb244ef7729503a0317bcff0f8fdaa93ca5cb7d2
+
+RUN apk --no-cache add --update git \
+    && git clone --filter=blob:none --sparse "$XAHAUD_REPO" /src/xahaud \
+    && cd /src/xahaud \
+    && git checkout "$XAHAUD_REF" \
+    && git sparse-checkout set hook \
+    && mkdir -p /src/hook-headers \
+    && cp hook/*.h /src/hook-headers/
+
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
 RUN apk --no-cache add su-exec
 COPY clangd /usr/bin
 WORKDIR /app
-COPY compiler-api/clang/includes/hook/*.h ./clang/includes/
+COPY --from=xahaud-includes /src/hook-headers/ ./clang/includes/
 COPY compiler-api/package.json .
 COPY compiler-api/yarn.lock .
 COPY compiler-api/tsconfig.json .

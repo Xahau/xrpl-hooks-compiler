@@ -25,8 +25,6 @@ clangd: ../bin/clangd
 
 compiler-api: ../compiler-api
 	-rm -rf compiler-api
-	mkdir -p compiler-api/clang/includes
-	cp -R ../compiler-api/clang/includes/hook compiler-api/clang/includes/
 	cp -R ../compiler-api/src compiler-api/
 	cp ../compiler-api/package.json ../compiler-api/yarn.lock ../compiler-api/tsconfig.json compiler-api/
 

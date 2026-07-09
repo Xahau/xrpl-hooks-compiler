@@ -4,6 +4,3 @@
 [submodule "wasi-sdk"]
 	path = wasi-sdk
 	url = https://github.com/XRPLF/wasi-sdk
-[submodule "compiler-api/clang/includes"]
-	path = compiler-api/clang/includes
-	url = https://github.com/Xahau/xahaud
