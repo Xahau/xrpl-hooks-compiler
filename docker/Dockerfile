@@ -22,6 +22,18 @@ RUN apk --no-cache add --update build-base git \
     && git checkout "$HOOK_CLEANER_REF" \
     && make
 
+FROM --platform=linux/amd64 node:17-alpine AS guard-checker-builder
+MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
+
+ARG GUARD_CHECKER_REPO=https://github.com/RichardAH/guard-checker
+ARG GUARD_CHECKER_REF=de69e8aa054d49612dda7046962003beb88c0749
+
+RUN apk --no-cache add --update build-base git \
+    && git clone "$GUARD_CHECKER_REPO" /src/guard-checker \
+    && cd /src/guard-checker \
+    && git checkout "$GUARD_CHECKER_REF" \
+    && make
+
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
@@ -35,7 +47,7 @@ COPY compiler-api/tsconfig.json .
 COPY compiler-api/src ./src
 COPY wasi-sdk ./clang/wasi-sdk
 COPY --from=hook-cleaner-builder /src/hook-cleaner/hook-cleaner /usr/bin
-COPY guard_checker /usr/bin
+COPY --from=guard-checker-builder /src/guard-checker/guard_checker /usr/bin
 COPY wasm-opt /usr/bin
 COPY --from=qjsc-builder /src/quickjslite/qjsc /usr/bin
 COPY run.sh .
