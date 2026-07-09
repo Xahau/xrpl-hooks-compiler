@@ -20,6 +20,7 @@
     "fastify-cors": "^6.0.2",
     "fastify-websocket": "^4.0.0",
     "tsc": "^2.0.3",
+    "vscode-languageserver-textdocument": "^1.0.12",
     "vscode-ws-jsonrpc": "^0.2.0",
     "ws": "^8.3.0",
     "zod": "^3.11.6"
