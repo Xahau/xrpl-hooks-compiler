@@ -132,7 +132,7 @@ function get_clang_options(options: string) {
 
 function get_lld_options(options: string) {
   // --sysroot=${sysroot} is already included in compiler options
-  const clang_flags = `--no-standard-libraries -nostartfiles -Wl,--allow-undefined,--no-entry,--export-all`;
+  const clang_flags = `--no-standard-libraries -nostartfiles -Wl,--allow-undefined,--no-entry,--export=hook,--export=cbak`;
   if (!options) {
     return clang_flags;
   }
