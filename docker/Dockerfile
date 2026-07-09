@@ -10,6 +10,18 @@ RUN apk --no-cache add --update build-base git \
     && git checkout "$QJSC_REF" \
     && make qjsc
 
+FROM --platform=linux/amd64 node:17-alpine AS hook-cleaner-builder
+MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
+
+ARG HOOK_CLEANER_REPO=https://github.com/XRPLF/hook-cleaner-c
+ARG HOOK_CLEANER_REF=b856a3614c00361f108d07379f5892e7347bb994
+
+RUN apk --no-cache add --update build-base git \
+    && git clone "$HOOK_CLEANER_REPO" /src/hook-cleaner \
+    && cd /src/hook-cleaner \
+    && git checkout "$HOOK_CLEANER_REF" \
+    && make
+
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
@@ -22,7 +34,7 @@ COPY compiler-api/yarn.lock .
 COPY compiler-api/tsconfig.json .
 COPY compiler-api/src ./src
 COPY wasi-sdk ./clang/wasi-sdk
-COPY hook-cleaner /usr/bin
+COPY --from=hook-cleaner-builder /src/hook-cleaner/hook-cleaner /usr/bin
 COPY guard_checker /usr/bin
 COPY wasm-opt /usr/bin
 COPY --from=qjsc-builder /src/quickjslite/qjsc /usr/bin

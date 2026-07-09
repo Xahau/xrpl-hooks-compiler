@@ -7,7 +7,6 @@ all: checkout build
 checkout:
 	git submodule update --init --recursive llvm-project
 	git submodule update --init --recursive wasi-sdk
-	git submodule update --init --recursive hook-cleaner-c
 	git submodule update --init --recursive guard-checker
 	git submodule update --init --recursive compiler-api/clang/includes
 
@@ -22,7 +21,6 @@ doc:
 build: bin
 	$(MAKE) -C clang-build
 	$(MAKE) -C clangd-build
-	$(MAKE) -C cleaner-build
 	$(MAKE) -C guard-checker-build
 	$(MAKE) -C docker
 
@@ -38,7 +36,6 @@ doc.zip: doc
 clean:
 	$(MAKE) -C clang-build clean
 	$(MAKE) -C clangd-build clean
-	$(MAKE) -C cleaner-build clean
 	$(MAKE) -C guard-checker-build clean
 	$(MAKE) -C docker clean
 	-rm -rf bin doc

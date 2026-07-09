@@ -4,9 +4,6 @@
 [submodule "wasi-sdk"]
 	path = wasi-sdk
 	url = https://github.com/XRPLF/wasi-sdk
-[submodule "hook-cleaner-c"]
-	path = hook-cleaner-c
-	url = https://github.com/XRPLF/hook-cleaner-c
 [submodule "guard-checker"]
 	path = guard-checker
 	url = https://github.com/RichardAH/guard-checker
