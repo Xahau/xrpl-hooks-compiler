@@ -12,3 +12,14 @@ services:
       - ../compiler-api/src:/app/src
     environment:
       NODE_ENV: development
+      # Set to "1" to refuse compiling if the sandbox cannot be established
+      # (fail closed) instead of falling back to an unsandboxed compile.
+      # HOOKS_REQUIRE_SANDBOX: "1"
+    # The compile sandbox (bubblewrap) uses unprivileged user namespaces, which
+    # are enabled by default on modern Linux hosts and need no extra privileges
+    # here. If the host disables them (the server logs "compile sandbox:
+    # UNAVAILABLE" on startup), enable them on the host
+    # (sysctl kernel.unprivileged_userns_clone=1 / user.max_user_namespaces>0),
+    # or grant SYS_ADMIN to this container as a last resort:
+    # cap_add:
+    #   - SYS_ADMIN

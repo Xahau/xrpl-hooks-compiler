@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, existsSync, openSync, closeSync, readFileSync
 import { execSync } from "child_process";
 import { z } from 'zod';
 import { deflateSync } from 'zlib';
+import { sandbox_wrap } from './sandbox';
 
 export interface ResponseData {
   success: boolean;
@@ -60,15 +61,26 @@ export type RequestBody = z.infer<typeof requestBodySchema>;
 //     ]
 // }
 
-function sanitize_shell_output<T>(out: T): T {
-  return out; // FIXME
+// Strip filesystem paths out of tool diagnostics before returning them: the
+// build directory prefix is reduced to bare basenames and any other absolute
+// path is redacted, so the response never leaks internal paths or, if the
+// sandbox is bypassed, referenced file paths/contents.
+function sanitize_shell_output(out: string, dir: string): string {
+  if (!out) {
+    return out;
+  }
+  let s = out;
+  s = s.split(dir + '/').join('');
+  s = s.split(dir).join('');
+  s = s.replace(/(^|[^\w/])\/[^\s:'"]+/g, '$1[path]');
+  return s;
 }
 
 function shell_exec(cmd: string, cwd: string) {
   const out = openSync(cwd + '/out.log', 'w');
   let error = '';
   try {
-    execSync(cmd, { cwd, stdio: [null, out, out], });
+    execSync(sandbox_wrap(cmd, cwd), { cwd, stdio: [null, out, out], });
   } catch (ex: unknown) {
     if (ex instanceof Error) {
       error = ex?.message;
@@ -114,7 +126,7 @@ function link_js_files(source_files: string[], cwd: string, output: string, resu
   const cmd = qjsc + ' ' + '-c ' + files;
   const out = shell_exec(cmd, cwd);
   copyFileSync(cwd + '/out.c', output);
-  result_obj.console = sanitize_shell_output(out);
+  result_obj.console = sanitize_shell_output(out, cwd);
   if (!existsSync(output)) {
     result_obj.success = false;
     return false;
@@ -133,7 +145,9 @@ export function build_project(project: RequestBody, base: string) {
     tasks: [],
   };
   const dir = base + '.$';
-  const result = base + '.bc';
+  // Keep artifacts inside the per-build directory so the sandbox only needs to
+  // expose that one directory read-write.
+  const result = dir + '/output.bc';
 
   const complete = (success: boolean, message: string) => {
     rmSync(dir, { recursive: true });

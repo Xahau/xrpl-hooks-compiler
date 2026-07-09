@@ -1,7 +1,9 @@
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
-RUN apk --no-cache add su-exec
+# su-exec: drop to appuser at startup. bubblewrap: sandbox each compile so
+# untrusted source cannot read files outside its build directory.
+RUN apk --no-cache add su-exec bubblewrap
 COPY clangd /usr/bin
 WORKDIR /app
 COPY compiler-api/clang/includes/hook/*.h ./clang/includes/
