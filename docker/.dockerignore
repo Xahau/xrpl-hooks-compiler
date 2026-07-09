@@ -1,1 +1,7 @@
 .git
+clangd
+compiler-api/node_modules
+guard_checker
+hook-cleaner
+qjsc
+wasi-sdk

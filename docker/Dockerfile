@@ -1,3 +1,47 @@
+FROM --platform=linux/amd64 node:17-alpine AS wasi-sdk-builder
+MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
+
+ARG LLVM_REPO=https://github.com/XRPLF/llvm-project
+ARG LLVM_REF=4ca7eaabf2b3d617f9bb9490ac07ed4055fe80f9
+ARG WASI_SDK_REPO=https://github.com/XRPLF/wasi-sdk
+ARG WASI_SDK_REF=628938fa7156e3c709cb7f8fce5c01976b7d3ed4
+ARG NINJA_FLAGS=
+ARG BUILD_JOBS=
+
+RUN apk --no-cache add --update bash build-base python3 cmake ninja git
+
+RUN git init /src/llvm-project \
+    && cd /src/llvm-project \
+    && git remote add origin "$LLVM_REPO" \
+    && git fetch --depth 1 origin "$LLVM_REF" \
+    && git checkout FETCH_HEAD
+
+RUN git init /src/wasi-sdk \
+    && cd /src/wasi-sdk \
+    && git remote add origin "$WASI_SDK_REPO" \
+    && git fetch --depth 1 origin "$WASI_SDK_REF" \
+    && git checkout FETCH_HEAD \
+    && git submodule update --init --recursive --depth 1 \
+    && rm -rf src/llvm-project \
+    && ln -s /src/llvm-project src/llvm-project
+
+RUN cd /src/wasi-sdk \
+    && export NINJA_FLAGS="${NINJA_FLAGS:--j$(nproc)}" \
+    && make build
+
+RUN cd /src/wasi-sdk \
+    && export NINJA_FLAGS="${NINJA_FLAGS:--j$(nproc)}" \
+    && make strip
+
+RUN cd /src/wasi-sdk \
+    && export CMAKE_BUILD_PARALLEL_LEVEL="${BUILD_JOBS:-$(nproc)}" \
+    && cmake --build /src/wasi-sdk/build/llvm --target clangd \
+    && strip -s build/llvm/bin/clangd
+
+COPY rules.json copy-subset.py check-subset.py /tmp/
+RUN python3 /tmp/copy-subset.py /tmp/rules.json /src/wasi-sdk/build/install/opt/wasi-sdk /opt/wasi-sdk \
+    && python3 /tmp/check-subset.py /tmp/rules.json /opt/wasi-sdk
+
 FROM --platform=linux/amd64 node:17-alpine AS qjsc-builder
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
@@ -52,14 +96,14 @@ FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
 RUN apk --no-cache add su-exec
-COPY clangd /usr/bin
+COPY --from=wasi-sdk-builder /src/wasi-sdk/build/llvm/bin/clangd /usr/bin
 WORKDIR /app
 COPY --from=xahaud-includes /src/hook-headers/ ./clang/includes/
 COPY compiler-api/package.json .
 COPY compiler-api/yarn.lock .
 COPY compiler-api/tsconfig.json .
 COPY compiler-api/src ./src
-COPY wasi-sdk ./clang/wasi-sdk
+COPY --from=wasi-sdk-builder /opt/wasi-sdk ./clang/wasi-sdk
 COPY --from=hook-cleaner-builder /src/hook-cleaner/hook-cleaner /usr/bin
 COPY --from=guard-checker-builder /src/guard-checker/guard_checker /usr/bin
 COPY wasm-opt /usr/bin
