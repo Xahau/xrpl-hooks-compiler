@@ -1,3 +1,15 @@
+FROM --platform=linux/amd64 node:17-alpine AS qjsc-builder
+MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
+
+ARG QJSC_REPO=https://github.com/RichardAH/quickjslite
+ARG QJSC_REF=1babf223d01507049a2c6a62914346f1a5c73265
+
+RUN apk --no-cache add --update build-base git \
+    && git clone "$QJSC_REPO" /src/quickjslite \
+    && cd /src/quickjslite \
+    && git checkout "$QJSC_REF" \
+    && make qjsc
+
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
@@ -13,7 +25,7 @@ COPY wasi-sdk ./clang/wasi-sdk
 COPY hook-cleaner /usr/bin
 COPY guard_checker /usr/bin
 COPY wasm-opt /usr/bin
-COPY qjsc /usr/bin
+COPY --from=qjsc-builder /src/quickjslite/qjsc /usr/bin
 COPY run.sh .
 ADD compile_flags.txt /etc/clangd/compile_flags.txt
 ADD .clang-tidy /work/.clang-tidy

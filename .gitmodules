@@ -7,9 +7,6 @@
 [submodule "hook-cleaner-c"]
 	path = hook-cleaner-c
 	url = https://github.com/XRPLF/hook-cleaner-c
-[submodule "quickjslite"]
-	path = quickjslite
-	url = https://github.com/RichardAH/quickjslite
 [submodule "guard-checker"]
 	path = guard-checker
 	url = https://github.com/RichardAH/guard-checker
