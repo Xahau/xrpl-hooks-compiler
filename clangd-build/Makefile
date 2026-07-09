@@ -1,6 +1,7 @@
 # must be run as root
 
 CLANGD_BUILD_CONTAINER_TAG?=clangd-build
+BUILD_JOBS?=
 
 DOC_FLAG?=0
 
@@ -10,7 +11,7 @@ build1:
 	docker build -t $(CLANGD_BUILD_CONTAINER_TAG) .
 
 build2:
-	docker run -v $(realpath ../llvm-project):/mnt/llvm-project -e DOC_FLAG=$(DOC_FLAG) $(CLANGD_BUILD_CONTAINER_TAG):latest
+	docker run -v $(realpath ../llvm-project):/mnt/llvm-project -e DOC_FLAG=$(DOC_FLAG) -e BUILD_JOBS="$(BUILD_JOBS)" $(CLANGD_BUILD_CONTAINER_TAG):latest
 
 doc-clean:
 	if [ -d ../llvm-project/build/tools/clang/tools/extra/docs/html ]; then rm -rf ../llvm-project/build/tools/clang/tools/extra/docs/html; fi

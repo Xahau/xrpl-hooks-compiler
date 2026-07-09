@@ -4,6 +4,9 @@ echo running build.sh...
 set -e
 
 # instructions from https://github.com/llvm/llvm-project/tree/main/clang-tools-extra/clangd#building-and-testing-clangd , extended for also building documentation
+BUILD_JOBS=${BUILD_JOBS:-$(nproc)}
+export CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-$BUILD_JOBS}
+
 export LLVM_ROOT=/mnt/llvm-project
 cd $LLVM_ROOT
 if [ -d build ]; then
