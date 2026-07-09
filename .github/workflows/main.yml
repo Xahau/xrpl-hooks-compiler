@@ -81,5 +81,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./docker
-          push: true
+          # Push only if not a PR or the PR is from the same repository
+          push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
           tags: ${{ steps.meta.outputs.tags }}
