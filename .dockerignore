@@ -1,0 +1,12 @@
+.git
+bin
+bin.zip
+doc
+doc.zip
+docker/compiler-api
+docker/clangd
+docker/guard_checker
+docker/hook-cleaner
+docker/qjsc
+docker/wasi-sdk
+compiler-api/node_modules
