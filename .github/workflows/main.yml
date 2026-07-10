@@ -55,7 +55,6 @@ jobs:
 
       - name: Prepare build
         run: |
-          git submodule update --init --recursive compiler-api/clang/includes
           cd docker
           make dependencies
 
