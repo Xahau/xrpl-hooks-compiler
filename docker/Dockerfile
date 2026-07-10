@@ -38,7 +38,7 @@ RUN cd /src/wasi-sdk \
     && cmake --build /src/wasi-sdk/build/llvm --target clangd \
     && strip -s build/llvm/bin/clangd
 
-COPY rules.json copy-subset.py check-subset.py /tmp/
+COPY docker/rules.json docker/copy-subset.py docker/check-subset.py /tmp/
 RUN python3 /tmp/copy-subset.py /tmp/rules.json /src/wasi-sdk/build/install/opt/wasi-sdk /opt/wasi-sdk \
     && python3 /tmp/check-subset.py /tmp/rules.json /opt/wasi-sdk
 
@@ -106,12 +106,12 @@ COPY compiler-api/src ./src
 COPY --from=wasi-sdk-builder /opt/wasi-sdk ./clang/wasi-sdk
 COPY --from=hook-cleaner-builder /src/hook-cleaner/hook-cleaner /usr/bin
 COPY --from=guard-checker-builder /src/guard-checker/guard_checker /usr/bin
-COPY wasm-opt /usr/bin
+COPY docker/wasm-opt /usr/bin
 COPY --from=qjsc-builder /src/quickjslite/qjsc /usr/bin
-COPY run.sh .
-ADD compile_flags.txt /etc/clangd/compile_flags.txt
-ADD .clang-tidy /work/.clang-tidy
-ADD .clangd /work/.clangd
+COPY docker/run.sh .
+ADD docker/compile_flags.txt /etc/clangd/compile_flags.txt
+ADD docker/.clang-tidy /work/.clang-tidy
+ADD docker/.clangd /work/.clangd
 RUN cp -alf ./clang/includes /work/c && cp -alf clang/wasi-sdk/share/wasi-sysroot/include /usr && mkdir -p /usr/lib/clang/15.0.0 && cp -alf clang/wasi-sdk/lib/clang/15.0.0/include /usr/lib/clang/15.0.0
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup -h /app && chown appuser:appgroup /app
 RUN yarn && yarn build
