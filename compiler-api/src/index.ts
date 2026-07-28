@@ -1,6 +1,6 @@
 import fastify from 'fastify';
 import { readFileSync, readdirSync } from "fs";
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import fastifyCors from 'fastify-cors';
 import fastifyWebSocket from 'fastify-websocket';
 import * as ws from 'ws';
@@ -30,6 +30,21 @@ server.register(fastifyWebSocket);
 // Compilation code
 const llvmDir = process.cwd() + "/clang/wasi-sdk";
 const tempDir = "/tmp";
+
+// Server version: the git commit hash, injected as GIT_COMMIT at Docker build
+// time (there is no .git inside the image). Falls back to asking git directly
+// so `yarn start` in a local checkout still reports the right hash.
+function resolveVersion(): string {
+  if (process.env.GIT_COMMIT) {
+    return process.env.GIT_COMMIT;
+  }
+  try {
+    return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
+const version = resolveVersion();
 
 export interface ResponseData {
   success: boolean;
@@ -96,6 +111,10 @@ server.post('/api/build/js', async (req, reply) => {
 
 server.get('/', async (req, reply) => {
   reply.code(200).send('ok')
+})
+
+server.get('/api/version', async (req, reply) => {
+  reply.code(200).send({ version })
 })
 
 function toSocket(webSocket: ws): rpc.IWebSocket {

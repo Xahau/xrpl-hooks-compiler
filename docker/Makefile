@@ -2,8 +2,10 @@
 
 MAIN_CONTAINER_TAG?=xrpl-hooks-compiler
 
+GIT_COMMIT?=$(shell git rev-parse HEAD)
+
 build: dependencies
-	docker build -t $(MAIN_CONTAINER_TAG) .
+	docker build --build-arg GIT_COMMIT=$(GIT_COMMIT) -t $(MAIN_CONTAINER_TAG) .
 
 dependencies: wasi-sdk compiler-api clangd hook-cleaner guard-checker qjsc
 
