@@ -7,7 +7,8 @@ import * as rpc from 'vscode-ws-jsonrpc';
 import * as rpcServer from 'vscode-ws-jsonrpc/lib/server';
 import { build_project as build_c_project, requestBodySchema as requestCBodySchema, RequestBody as RequestCBody } from './chooks';
 import { build_project as build_js_project, requestBodySchema as requestJSBodySchema, RequestBody as RequestJSBody } from './jshooks';
-import { sandbox_status } from './sandbox';
+import { sandbox_status, clangd_command } from './sandbox';
+import { mkdtempSync, rmSync } from 'fs';
 
 const server = fastify();
 
@@ -142,7 +143,10 @@ function toSocket(webSocket: ws): rpc.IWebSocket {
 }
 
 server.get('/language-server/c', { websocket: true }, (connection /* SocketStream */, req /* FastifyRequest */) => {
-  let localConnection = rpcServer.createServerProcess('Clangd process', 'clangd', ['--compile-commands-dir=/etc/clangd', '--limit-results=200']);
+  // clangd runs under Landlock (see sandbox.ts) with a private writable temp directory for its preambles
+  const clangdTmp = mkdtempSync('/tmp/clangd-');
+  const [clangdCmd, clangdArgs] = clangd_command(['--compile-commands-dir=/etc/clangd', '--limit-results=200'], clangdTmp);
+  let localConnection = rpcServer.createServerProcess('Clangd process', clangdCmd, clangdArgs, { env: { ...process.env, TMPDIR: clangdTmp } });
   let socket: rpc.IWebSocket = toSocket(connection.socket);
   let newConnection = rpcServer.createWebSocketConnection(socket);
   rpcServer.forward(newConnection, localConnection);
@@ -151,6 +155,11 @@ server.get('/language-server/c', { websocket: true }, (connection /* SocketStrea
     console.log('Client closed', reason);
     try {
       localConnection.dispose();
+    } catch (err) {
+      console.log(err)
+    }
+    try {
+      rmSync(clangdTmp, { recursive: true, force: true });
     } catch (err) {
       console.log(err)
     }

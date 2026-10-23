@@ -99,9 +99,57 @@ export function sandbox_available(): boolean {
   return cached;
 }
 
+// Landlock fallback. Under Docker's default seccomp and AppArmor profiles (and its masked /proc), bubblewrap cannot
+// create its namespaces, so in the container the sandbox above is UNAVAILABLE and clang/clangd run unconfined. The
+// include check in chooks.ts does not cover everything that reads a file at compile time (e.g. an assembler
+// `.incbin "/path"` inside __asm__). Landlock (Linux >= 5.13) works unprivileged under the default Docker profile: the
+// small static helper landlock-exec (docker/landlock-exec.c, built in the Dockerfile) lets the command open only the
+// read-only toolchain paths and its own writable directory; every other open() fails with EACCES. It fails closed
+// (exit 126) when the kernel has no Landlock.
+const LANDLOCK = process.env.HOOKS_LANDLOCK_BIN || "/usr/local/bin/landlock-exec";
+// clangd also reads the editor headers (/work/c) and its compile flags (/etc/clangd)
+const LSP_RO_PATHS = ["/work", "/etc/clangd"];
+
+function landlock_ro(extra: string[] = []): string {
+  return [...RO_SYSTEM_PATHS, toolchain_root(), ...extra].join(":");
+}
+
+let landlock_cached: boolean | undefined;
+
+export function landlock_available(): boolean {
+  if (landlock_cached === undefined) {
+    try {
+      // the helper must start AND must not be able to read a file outside the allowlist
+      execSync(`${LANDLOCK} ${shq(landlock_ro())} /dev/null -- /bin/sh -c ${shq("! cat /etc/hostname >/dev/null 2>&1")}`,
+        { stdio: "ignore", timeout: 5000 });
+      landlock_cached = true;
+    } catch (_ex) {
+      landlock_cached = false;
+    }
+  }
+  return landlock_cached;
+}
+
+// clangd for the language server: [command, args] that run it under Landlock with `tmpdir` as its only writable
+// directory (preambles), or plain clangd when no sandbox is available (unless HOOKS_REQUIRE_SANDBOX is set).
+export function clangd_command(args: string[], tmpdir: string): [string, string[]] {
+  if (landlock_available()) {
+    return [LANDLOCK, [landlock_ro(LSP_RO_PATHS), tmpdir + ":/dev/null", "--", "clangd", ...args]];
+  }
+  if (REQUIRE_SANDBOX) {
+    // no throw inside the websocket handler: start a command that exits at once, the client sees the server close
+    console.error("Refusing to start clangd: sandbox unavailable and HOOKS_REQUIRE_SANDBOX is set");
+    return ["/bin/false", []];
+  }
+  return ["clangd", args];
+}
+
 export function sandbox_status(): string {
   if (sandbox_available()) {
     return "compile sandbox: ACTIVE (bubblewrap)";
+  }
+  if (landlock_available()) {
+    return "compile sandbox: ACTIVE (landlock: compilers and clangd can only open the toolchain and their own directory)";
   }
   if (REQUIRE_SANDBOX) {
     return "compile sandbox: UNAVAILABLE and HOOKS_REQUIRE_SANDBOX is set — builds will be refused";
@@ -116,6 +164,10 @@ export function sandbox_status(): string {
 export function sandbox_wrap(cmd: string, dir: string): string {
   if (sandbox_available()) {
     return bwrap_prefix(dir) + " " + cmd;
+  }
+  if (landlock_available()) {
+    // TMPDIR: clang writes temporary files (and crash reproducers) into the build directory instead of /tmp
+    return `TMPDIR=${shq(dir)} ${LANDLOCK} ${shq(landlock_ro())} ${shq(dir + ":/dev/null")} -- ${cmd}`;
   }
   if (REQUIRE_SANDBOX) {
     throw new Error("Refusing to compile: sandbox unavailable and HOOKS_REQUIRE_SANDBOX is set");
