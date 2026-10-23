@@ -1,9 +1,17 @@
+# landlock-exec: small static helper that confines each compile (and clangd) to the toolchain and its own build
+# directory with Linux Landlock; used when bubblewrap cannot run (see compiler-api/src/sandbox.ts)
+FROM --platform=linux/amd64 alpine:3.19 AS landlock-exec
+RUN apk --no-cache add build-base linux-headers
+COPY landlock-exec.c /src/landlock-exec.c
+RUN gcc -O2 -static -Wall -o /landlock-exec /src/landlock-exec.c
+
 FROM --platform=linux/amd64 node:17-alpine
 MAINTAINER Vaclav Barta "vaclav@equilibrium.co"
 
 # su-exec: drop to appuser at startup. bubblewrap: sandbox each compile so
 # untrusted source cannot read files outside its build directory.
 RUN apk --no-cache add su-exec bubblewrap
+COPY --from=landlock-exec /landlock-exec /usr/local/bin/landlock-exec
 COPY clangd /usr/bin
 WORKDIR /app
 COPY compiler-api/clang/includes/hook ./clang/includes
